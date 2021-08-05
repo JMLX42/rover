@@ -3,8 +3,11 @@ use std::cmp::{max};
 use std::fmt;
 use std::sync::{Arc, Mutex};
 use std::process;
+use std::{env, io::Error};
+
 use async_std::net::{TcpListener, TcpStream};
 use async_std::task;
+use futures_util::StreamExt;
 
 use linux_embedded_hal::I2cdev;
 use pwm_pca9685::{Address, Channel, Pca9685};
@@ -121,9 +124,44 @@ async fn accept_connection(stream: TcpStream) {
         .expect("Failed to forward message")
 }
 
-fn main() {
+async fn run() -> Result<(), Error> {
     pretty_env_logger::init_custom_env("ROVER_LOG");
 
+    let addr = env::args()
+        .nth(1)
+        .unwrap_or_else(|| "0.0.0.0:8080".to_string());
+
+    // Create the event loop and TCP listener we'll accept connections on.
+    let try_socket = TcpListener::bind(&addr).await;
+    let listener = try_socket.expect("Failed to bind");
+    info!("Listening on: {}", addr);
+
+    while let Ok((stream, _)) = listener.accept().await {
+        task::spawn(accept_connection(stream));
+    }
+
+    Ok(())
+}
+
+async fn accept(stream: TcpStream) {
+
+    let addr = stream
+        .peer_addr()
+        .expect("connected streams should have a peer address");
+    info!("Peer address: {}", addr);
+
+    let ws_stream = async_tungstenite::accept_async(stream)
+        .await
+        .expect("Error during the websocket handshake occurred");
+
+    info!("New WebSocket connection: {}", addr);
+
+    let (write, read) = ws_stream.split();
+    read.forward(write)
+        .await
+        .expect("Failed to forward message")
+
+    /*
     let motor1 = Arc::new(Mutex::new(DCMotor::new(
 	Channel::C0,
 	Channel::C1,
@@ -168,5 +206,9 @@ fn main() {
 	motor2.stop();
 	//thread::sleep(Duration::from_secs(3));
     }
+     */
 }
 
+fn main() -> Result<(), Error> {
+    task::block_on(run())
+}
