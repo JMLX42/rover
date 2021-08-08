@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<meta charset="utf-8" />
+<html>
+  <head>
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=0">
+    
+</head>
+<body>
+<div>
+  <button id="connect">Connect</button>&nbsp;|&nbsp;Status:
+  <span id="status">disconnected</span>
+</div>
+
+<div id="log"
+     style="width:20em;height:15em;overflow:auto;border:1px solid black">
+</div>
+
+<script language="javascript" type="text/javascript">
+    var conn = null;
+
+    function log(msg) {
+        var control = document.getElementById('log');
+
+        control.innerHTML = control.innerHTML + msg + '<br/>';
+    }
+
+    function connect() {
+        disconnect();
+
+        var wsUri = (window.location.protocol == 'https:' && 'wss://' || 'ws://')
+            + window.location.host
+            + "/websocket";
+        
+        conn = new WebSocket(wsUri);
+
+        log('connecting...');
+        conn.onopen = function() {
+            log('connected');
+            update_ui();
+        };
+
+        conn.onmessage = function(e) {
+            log('received: ' + e.data);
+        };
+    
+        conn.onclose = function() {
+            log('disconnected');
+            conn = null;
+            update_ui();
+        };
+    }
+
+    function disconnect() {
+        if (conn != null) {
+            log('disconnecting...');
+            conn.close();
+            conn = null;
+            update_ui();
+        }
+    }
+
+    function update_ui() {
+        if (!!conn) {
+            document.getElementById('status').innerText = 'connected';
+            document.getElementById('connect').innerText = 'Disconnect';
+        } else {
+            document.getElementById('status').innerText = 'disconnected';
+            document.getElementById('connect').innerText = 'Connect';
+        }
+    }
+
+    document.getElementById('connect').onclick = function() {
+        if (!!conn) {
+            disconnect();
+        } else {
+            connect();
+        }
+    };
+</script>
+
+</body>
+</html>
