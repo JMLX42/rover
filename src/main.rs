@@ -1,14 +1,9 @@
-use std::{thread, time::Duration};
 use std::cmp::{max};
 use std::fmt;
 use std::sync::{Arc, Mutex};
-use std::process;
 use std::{env, io::Error};
 
-use futures::prelude::*;
-use futures::{
-    future, pin_mut,
-};
+use futures::{future};
 
 use async_std::net::{TcpListener, TcpStream};
 use async_std::task;
@@ -124,6 +119,35 @@ impl DCMotor {
     }
 }
 
+#[derive(Debug)]
+struct Rover {
+    right_motor: DCMotor,
+    left_motor: DCMotor,
+}
+
+impl Rover {
+    fn new() -> Self {
+        Rover {
+            right_motor: DCMotor::new(
+                Channel::C0,
+                Channel::C1,
+                Channel::C2,
+            ),
+            left_motor: DCMotor::new(
+                Channel::C5,
+                Channel::C3,
+                Channel::C4,
+            ),
+        }
+    }
+
+    fn stop(self: &mut Self) {
+        trace!("Rover.stop({:?})", self);
+
+        self.right_motor.stop();
+        self.left_motor.stop();
+    }
+}
 
 async fn accept(stream: TcpStream) {
     let addr = stream
@@ -137,24 +161,7 @@ async fn accept(stream: TcpStream) {
 
     info!("new WebSocket connection: {}", addr);
 
-    let motor1 = Arc::new(Mutex::new(DCMotor::new(
-        Channel::C0,
-        Channel::C1,
-        Channel::C2,
-    )));
-    let motor2 = Arc::new(Mutex::new(DCMotor::new(
-        Channel::C5,
-        Channel::C3,
-        Channel::C4,
-    )));
-
-    {
-        let mut motor1 = motor1.lock().unwrap();
-        let mut motor2 = motor2.lock().unwrap();
-
-        motor1.stop();
-        motor2.stop();
-    }
+    let rover = Arc::new(Mutex::new(Rover::new()));
 
     let (_write, read) = ws_stream.split();
     let receive = read.try_for_each(|msg| {
@@ -173,20 +180,19 @@ async fn accept(stream: TcpStream) {
 
         match command {
             Ok(command) => {
-                let mut motor1 = motor1.lock().unwrap();
-                let mut motor2 = motor2.lock().unwrap();
+                let mut rover = rover.lock().unwrap();
 
                 match command {
                     RoverCommand::MotorRun { motor, direction, speed } => {
                         match motor {
-                            RoverMotorId::Right => motor1.set_speed(speed, direction),
-                            RoverMotorId::Left => motor2.set_speed(speed, direction),
+                            RoverMotorId::Right => rover.right_motor.set_speed(speed, direction),
+                            RoverMotorId::Left => rover.left_motor.set_speed(speed, direction),
                         }
                     }
                     RoverCommand::MotorStop { motor } => {
                         match motor {
-                            RoverMotorId::Right => motor1.stop(),
-                            RoverMotorId::Left => motor2.stop(),
+                            RoverMotorId::Right => rover.right_motor.stop(),
+                            RoverMotorId::Left => rover.left_motor.stop(),
                         }
                     }
                 }
@@ -203,13 +209,7 @@ async fn accept(stream: TcpStream) {
 
     info!("WebSocket disconnected: {}", addr);
 
-    {
-        let mut motor1 = motor1.lock().unwrap();
-        let mut motor2 = motor2.lock().unwrap();
-
-        motor1.stop();
-        motor2.stop();
-    }
+    rover.lock().unwrap().stop();
 }
 
 async fn run() -> Result<(), Error> {
@@ -232,5 +232,9 @@ async fn run() -> Result<(), Error> {
 }
 
 fn main() -> Result<(), Error> {
+    let mut rover = Rover::new();
+
+    rover.stop();
+
     task::block_on(run())
 }
